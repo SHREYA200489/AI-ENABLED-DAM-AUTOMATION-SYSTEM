@@ -1,0 +1,320 @@
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+#include<Servo.h>
+Servo servo1;
+Servo servo2,servo3;
+
+int trigger=8;    // front uv sensor
+int echo=9;
+
+
+long duration;
+int distance;
+
+float calibration_value = 21.34;
+int phval = 0; 
+unsigned long int avgval; 
+int buffer_arr[10],temp;
+
+int turbudityval;
+int ph_act;
+float pHValue;
+
+int X;
+int Y;
+float TIME = 0;
+float FREQUENCY = 0;
+float WATER = 0;
+float TOTAL = 0;
+float LS = 0;
+const int input = A0;
+
+// Define water level thresholds
+const int waterLevelLow = 5;
+const int waterLevelHigh = 10;
+
+// Servo positions
+const int openAngle = 90;     // Open position (90 degrees)
+const int closeAngle = 0;     // Closed position (0 degrees)
+
+// State variables
+bool twoGatesOpened = false;  // To track if two gates were opened when water level was between 5 and 10
+
+
+void setup() {
+  // put your setup code here, to run once:
+  Serial.begin(9600);
+  servo1.attach(3);
+  servo2.attach(5);
+  servo3.attach(6);
+
+  servo1.write(closeAngle);
+  servo2.write(closeAngle);
+  servo3.write(closeAngle);
+
+  
+  pinMode(trigger,OUTPUT);
+  pinMode(echo,INPUT);
+  pinMode(input,INPUT);
+    lcd.init();                      // Initialize the LCD
+  lcd.backlight();  
+  lcd.clear();
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Dam Monitoring");
+  Serial.println("Dam Monitoring");
+  delay(500);
+ 
+
+}
+
+void loop() 
+{
+  // put your main code here, to run repeatedly:
+  UV_SENSOR();
+  RAIN_CHECK();
+  TURBUDITY();
+  Water1_read();
+  PH_CHECK();
+  serialEvent();
+
+}
+
+void serialEvent()
+{
+  if(Serial.available()>0)
+  {
+    char ch=Serial.read();
+    if(ch=='A')
+    {
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Crack Detected");
+      Serial.println("$Crack Detected#");
+      delay(1000);
+    }
+  }
+}
+
+void UV_SENSOR()
+{
+   digitalWrite(trigger,LOW);  
+  delayMicroseconds(2);
+  digitalWrite(trigger,HIGH);  
+  delayMicroseconds(10);
+  digitalWrite(trigger,LOW);
+  duration=pulseIn(echo,HIGH);
+  distance=duration*0.034/2;  
+  Serial.print("Distance:");
+  Serial.println(distance);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("WATER LEVEL:");
+  lcd.setCursor(0,1);
+  lcd.print(distance);
+  delay(2000);
+
+  // Check water level and control servos accordingly
+  if (distance <=waterLevelLow) 
+  {
+     lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("WATER LEVEL HIGH");
+    lcd.setCursor(0,1);
+    lcd.print("RELEASING WATER");
+  
+    
+    Serial.println("$WATER LEVEL HIGH RELEASING WATER#");
+  
+      delay(1000);
+    // If water level is below 5, open all three gates
+    servo1.write(openAngle);
+    servo2.write(openAngle);
+    servo3.write(openAngle);
+    twoGatesOpened = false; // Reset tracking for gates
+     //bot.sendMessage(CHAT_ID, "WATER LEVEL HIGH RELEASING WATER"); 
+      delay(1000);
+ 
+  }
+  else if (distance > waterLevelLow && distance <= waterLevelHigh)
+  {
+    // If water level is between 5 and 10 and two gates are not already opened
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("WATER LEVEL 80%");
+    lcd.setCursor(0,1);
+    lcd.print("RELEASING WATER");
+    Serial.println("$WATER LEVEL 80% RELEASING WATER#");
+
+     
+     // bot.sendMessage(CHAT_ID, "WATER LEVEL 80% RELEASING WATER"); 
+      delay(1000);
+    if (!twoGatesOpened) {
+      servo1.write(openAngle);
+      servo2.write(openAngle);
+      servo3.write(closeAngle);
+      twoGatesOpened = true;
+      // bot.sendMessage(CHAT_ID, "WATER LEVEL 80% RELEASING WATER"); 
+      delay(1000);
+    }
+  } 
+   else if (distance > 10 && distance <= 20)
+  {
+    // If water level is between 5 and 10 and two gates are not already opened
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("WATER LEVEL 50%");
+    lcd.setCursor(0,1);
+    lcd.print("RELEASING WATER");
+    Serial.println("$WATER LEVEL 50% RELEASING WATER#");
+   
+    
+  //  bot.sendMessage(CHAT_ID, "WATER LEVEL 50% RELEASING WATER"); 
+      delay(1000);
+    if (!twoGatesOpened) 
+    {
+      servo1.write(openAngle);
+      servo2.write(closeAngle);
+      servo3.write(closeAngle);
+      twoGatesOpened = false;
+//        bot.sendMessage(CHAT_ID, "WATER LEVEL 50% RELEASING WATER"); 
+      delay(1000);
+    }
+  } 
+  else {
+    // Water level is greater than 10, close all gates
+    servo1.write(closeAngle);
+    servo2.write(closeAngle);
+    servo3.write(closeAngle);
+    twoGatesOpened = false; // Reset tracking for gates
+   
+  }
+ // If two gates were already opened and water level drops below 5
+  if (twoGatesOpened && distance < waterLevelLow) 
+  {
+    // Open the remaining gate
+    servo3.write(openAngle);
+    twoGatesOpened = false; // Reset tracking
+  }
+
+  delay(1000); // Wait for a second before next reading
+  
+  serialEvent();
+}
+
+void RAIN_CHECK()
+{
+  int rainval=analogRead(A1);
+  rainval=1023-rainval;
+  Serial.print("Rain:");
+  Serial.println(rainval);
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Rain:");
+  lcd.setCursor(6,0);
+  lcd.print(rainval);
+  delay(2000);
+  if(rainval>300&&rainval<600)
+  {
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("RAINFALL IS LOW");
+    Serial.println("$RAINFALL IS LOW#");
+    delay(1000);
+}
+
+ if(rainval>800)
+  {
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("RAINFALL IS MORE");
+    Serial.println("$RAINFALL IS MORE#");
+ 
+    delay(1000);
+   
+}
+serialEvent();
+}
+
+void TURBUDITY()
+ {
+
+      int turbudityval=analogRead(A2);
+//      turbudityval=turbudityval-1023;
+      Serial.print("Turbudity:");
+      Serial.println(turbudityval);
+      lcd.clear();
+      lcd.setCursor(0,0);
+      lcd.print("Turbudity:"+String(turbudityval));
+      delay(2000);
+      serialEvent();
+ }
+
+void Water1_read()
+{
+    X = pulseIn(input, HIGH);
+    Y = pulseIn(input, LOW);
+    TIME = X + Y;
+    FREQUENCY = 1000000/TIME;
+    WATER = FREQUENCY/7.5;
+    LS = WATER/60;
+    if(FREQUENCY >= 0)
+    {
+    if(isinf(FREQUENCY))
+    {
+    lcd.clear();
+    lcd.setCursor(0,0);
+    lcd.print("VOL. :0.00");
+    lcd.setCursor(0,1);
+    lcd.print("TOTAL:");
+    lcd.print( TOTAL);
+    lcd.print(" L");
+    delay(1300);
+ }
+   else
+    {
+        TOTAL = TOTAL + LS;
+        Serial.println(FREQUENCY);
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("VOL.: ");
+        lcd.print(WATER);
+        lcd.print(" L/M");
+        lcd.setCursor(0,1);
+        lcd.print("TOTAL:");
+        lcd.print( TOTAL);
+        lcd.print(" L");
+        delay(2000);
+        if(TOTAL>3)
+        {
+          lcd.clear();
+          lcd.setCursor(0,0);
+          lcd.print("Water Flow ");
+          lcd.setCursor(0,1);
+          lcd.print("is More");
+           Serial.println("$Water Flow is More#");
+        delay(2000);
+          TOTAL=0;
+ 
+         
+        }
+      }
+    }
+    serialEvent();
+}
+
+void PH_CHECK()
+ {
+   
+    pHValue=analogRead(A3);
+  pHValue=1023-pHValue;
+  pHValue = map(pHValue, 0, 1023, 0, 14);
+   Serial.print("pHValue:");  
+  Serial.print(pHValue);
+  Serial.println("");
+  lcd.clear();
+  lcd.print("pH:"+String(pHValue));
+  
+  delay(1000);
+ }
